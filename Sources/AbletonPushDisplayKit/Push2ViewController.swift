@@ -41,7 +41,7 @@ public class Push2ViewController{
     }
     
     
-    public func createBackgroundWindow(){
+    public func start(){
         DispatchQueue.main.async { [weak self] in
             let newWindow = NSWindow()
             
