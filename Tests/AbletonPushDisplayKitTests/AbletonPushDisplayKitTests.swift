@@ -1,11 +1,9 @@
 import XCTest
+import SwiftUI
 @testable import AbletonPushDisplayKit
 
 final class AbletonPushDisplayKitTests: XCTestCase {
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct
-        // results.
-//        XCTAssertEqual(AbletonPushDisplayKit(), "Hello, World!")
+    func Push2ViewController_doesNot_throw() throws {
+        XCTAssertNoThrow(Push2ViewController(push2View: Text("Hellow world!").eraseToAnyView()))
     }
 }
