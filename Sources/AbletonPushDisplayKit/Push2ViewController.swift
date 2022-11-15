@@ -10,14 +10,14 @@ import AppKit
 import SwiftUI
 import Combine
 
-class Push2ViewController{
+public class Push2ViewController{
     private var displayManager: Push2DisplayManager
     private var window: NSWindow?
     private var subscriptions: Set<AnyCancellable>
     private var isDisplayConnected: Bool
     private var push2View:  AnyView
     
-    init(push2View:  AnyView) {
+    public init(push2View:  AnyView) {
         self.push2View = push2View
         self.isDisplayConnected = false
         self.displayManager = Push2DisplayManager()
@@ -41,7 +41,7 @@ class Push2ViewController{
     }
     
     
-    func createBackgroundWindow(){
+    public func start(){
         DispatchQueue.main.async { [weak self] in
             let newWindow = NSWindow()
             
