@@ -10,21 +10,15 @@ import AppKit
 import SwiftUI
 import Combine
 
-@available(macOS 10.15, *)
-struct Dependencies {
-    private var push2View:  AnyView?
-}
-
-@available(macOS 10.15, *)
 public class Push2ViewController{
     private var displayManager: Push2DisplayManager
     private var window: NSWindow?
     private var subscriptions: Set<AnyCancellable>
     private var isDisplayConnected: Bool
-    private var push2View:  AnyView?
+    private var push2View: AnyView
     
-    @available(macOS 10.15, *)
-    init() {
+    init(push2View: AnyView) {
+        self.push2View = push2View
         self.isDisplayConnected = false
         self.displayManager = Push2DisplayManager()
         self.subscriptions = Set<AnyCancellable>()
@@ -47,7 +41,6 @@ public class Push2ViewController{
     }
     
     
-    @available(macOS 10.15, *)
     func createBackgroundWindow(){
         DispatchQueue.main.async { [weak self] in
             let newWindow = NSWindow()
@@ -60,7 +53,6 @@ public class Push2ViewController{
         }
     }
     
-    @available(macOS 10.15, *)
     private func updateDisplay(){
         if self.window == nil{
             return
@@ -94,7 +86,6 @@ public class Push2ViewController{
 }
 
 
-@available(macOS 10.15, *)
 extension View {
     func eraseToAnyView() -> AnyView {
         AnyView(self)
