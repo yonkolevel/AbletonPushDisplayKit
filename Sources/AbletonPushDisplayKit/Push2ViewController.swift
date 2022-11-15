@@ -10,14 +10,14 @@ import AppKit
 import SwiftUI
 import Combine
 
-public class Push2ViewController{
+class Push2ViewController{
     private var displayManager: Push2DisplayManager
     private var window: NSWindow?
     private var subscriptions: Set<AnyCancellable>
     private var isDisplayConnected: Bool
-    private var push2View: AnyView
+    private var push2View:  AnyView
     
-    public init(push2View: AnyView) {
+    init(push2View:  AnyView) {
         self.push2View = push2View
         self.isDisplayConnected = false
         self.displayManager = Push2DisplayManager()
@@ -41,7 +41,7 @@ public class Push2ViewController{
     }
     
     
-    public func start(){
+    func createBackgroundWindow(){
         DispatchQueue.main.async { [weak self] in
             let newWindow = NSWindow()
             
@@ -61,10 +61,10 @@ public class Push2ViewController{
         let contentRect = NSRect(x: 0 , y: 0,width: 960, height:160)
         let scalingFactor = CGFloat(NSScreen.main?.backingScaleFactor ?? 1)
         
-        if self.push2View == nil {
-            self.push2View = self.push2View.frame(minWidth: 960/scalingFactor, idealWidth: 960/scalingFactor, maxWidth: 960/scalingFactor, minHeight: 160/scalingFactor, idealHeight: 160/scalingFactor, maxHeight: 160/scalingFactor)
+        
+        self.push2View = self.push2View.frame(minWidth: 960/scalingFactor, idealWidth: 960/scalingFactor, maxWidth: 960/scalingFactor, minHeight: 160/scalingFactor, idealHeight: 160/scalingFactor, maxHeight: 160/scalingFactor)
                 .fixedSize().eraseToAnyView()
-        }
+        
         
         
         guard let newWindow = self.window else {return}
@@ -85,10 +85,8 @@ public class Push2ViewController{
     }
 }
 
-
 extension View {
     func eraseToAnyView() -> AnyView {
         AnyView(self)
     }
 }
-
