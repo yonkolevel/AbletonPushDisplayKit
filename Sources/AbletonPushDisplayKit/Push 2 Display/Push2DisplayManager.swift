@@ -78,12 +78,7 @@ class Push2DisplayManager: Push2DisplayManagerProtocol {
     
     
     @objc private func sendPixels(pixels: [UInt8]) {
-        if !self.isConnected {
-            print("Connect before sending pixels.")
-            return
-        }
-        
-        guard let interface = self.deviceInterface else {
+        guard isConnected, let interface = self.deviceInterface else {
             return
         }
         
