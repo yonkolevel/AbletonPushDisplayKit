@@ -4,8 +4,8 @@ import SwiftUI
 typealias Pixel = UInt8
 
 class PixelExtractor {
-    private static let DISPLAY_WIDTH = 960
-    private static let DISPLAY_HEIGHT = 160
+    public static let DISPLAY_WIDTH = 960
+    public static let DISPLAY_HEIGHT = 160
     
     static func getPixelsForPush(bitmap: NSBitmapImageRep)->[UInt8]{
         let xOrMasks:[UInt8] = [0xe7, 0xf3, 0xe7, 0xff];
@@ -15,15 +15,13 @@ class PixelExtractor {
 
         for y in 0..<DISPLAY_HEIGHT {
             for x  in 0..<DISPLAY_WIDTH {
-                let color = bitmap.colorAt(x: x, y: y)
-                if color == nil {
+                guard let color = bitmap.colorAt(x: x, y: y),
+                      let colorComponents = color.components() else {
                     continue
                 }
-                let colorComponents = color!.components()
-                let red = Pixel((colorComponents?.1.red)!)
-                let green = Pixel((colorComponents?.1.green)!);
-                let blue = Pixel((colorComponents?.1.blue)!);
-                let alpha = Pixel((colorComponents?.1.alpha)!);
+                let red = Pixel(colorComponents.1.red)
+                let green = Pixel(colorComponents.1.green)
+                let blue = Pixel(colorComponents.1.blue)
                 
                 let destByte = y * displayPitch + x * 2;
                 processedImage[Int(destByte)] = (red >> 3) ^ UInt8(xOrMasks[Int(xorOffset)]);
@@ -95,11 +93,6 @@ class PixelExtractor {
             }
         }
         
-        let testPixelIndex = 0
-        let readRed = bitmapData[testPixelIndex]
-        let readGreen = bitmapData[testPixelIndex + 1]
-        let readBlue = bitmapData[testPixelIndex + 2]
-        print("Direct pixel verification: R=\(readRed) G=\(readGreen) B=\(readBlue)")
         
         return bitmap
     }

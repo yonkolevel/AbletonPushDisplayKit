@@ -1,13 +1,18 @@
 //
-//  Push2DisplayProtocol.swift
-//  Push2 Display Process PlayGround
+//  PushDisplayManagerProtocol.swift
+//  AbletonPushDisplayKit
 //
 //  Created by Ricardo Abreu on 15/08/2022.
 //
 
 import Foundation
 
-
-protocol Push2DisplayManagerProtocol {
-    
+/// Protocol defining the interface for Push device display managers
+/// Handles USB communication and connection management for Ableton Push devices
+protocol PushDisplayManagerProtocol {
+    var isConnected: Bool { get }
+    func connect(completion: @escaping (Result<Bool, Error>) -> Void)
+    func connect(to device: PushDevice, completion: @escaping (Result<Bool, Error>) -> Void)
+    func sendPixels(pixels: [UInt8])
+    func disconnect()
 }

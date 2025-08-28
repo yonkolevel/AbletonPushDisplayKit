@@ -27,7 +27,7 @@ public enum PushDevice {
 // MARK: - Constants
 
 let ABLETON_VENDOR_ID: Int = 10626  // 0x2982
-let PUSH2_BULK_EP_OUT: UInt8 = 0x01
+let PUSH_BULK_EP_OUT: UInt8 = 0x01
 let TRANSFER_TIMEOUT: UInt32 = 1000
 
 var frameHeader: [UInt8] = [
@@ -39,7 +39,7 @@ var frameHeader: [UInt8] = [
 
 // MARK: - Display Manager
 // Manages the USB communication with Ableton Push devices
-public class PushDisplayManager: Push2DisplayManagerProtocol {
+public class PushDisplayManager: PushDisplayManagerProtocol {
     private var deviceInterface: USBInterfaceInterface!
     @Published var isConnected = false
     private var targetDevice: PushDevice = .push3SA
@@ -81,15 +81,14 @@ public class PushDisplayManager: Push2DisplayManagerProtocol {
         }
         
         do {
-            try interface.open(seize: true)
             try interface.openAndPerform {
-                try interface.write(frameHeader, pipe: Int(PUSH2_BULK_EP_OUT))
-                try interface.write(pixels, pipe: Int(PUSH2_BULK_EP_OUT),
+                try interface.write(frameHeader, pipe: Int(PUSH_BULK_EP_OUT))
+                try interface.write(pixels, pipe: Int(PUSH_BULK_EP_OUT),
                                   noDataTimeout: TimeInterval(TRANSFER_TIMEOUT),
                                   completionTimeout: TimeInterval(TRANSFER_TIMEOUT))
             }
         } catch let error {
-            print(error)
+            print("Failed to send pixels to device: \(error)")
         }
     }
     
@@ -108,7 +107,7 @@ public class PushDisplayManager: Push2DisplayManagerProtocol {
                 )
                 connectedDevices.append(device)
             } catch {
-                print("No device found.")
+                // Device not connected, continue checking other devices
             }
         }
         
@@ -120,7 +119,7 @@ public class PushDisplayManager: Push2DisplayManagerProtocol {
             try deviceInterface?.close()
             deviceInterface.release()
         } catch {
-            print("Error disconnecting: \(error)")
+            print("Error disconnecting from device: \(error)")
         }
         deviceInterface = nil
         isConnected = false

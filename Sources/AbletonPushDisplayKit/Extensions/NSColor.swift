@@ -1,6 +1,6 @@
 //
 //  NSColor.swift
-//  MidiCircuitPlayGround
+//  AbletonPushDisplayKit
 //
 //  Created by Ricardo Abreu on 09/11/2020.
 //
@@ -17,7 +17,7 @@ extension NSColor {
         var green: CGFloat = 0
         var blue: CGFloat = 0
         var alpha: CGFloat = 0
-        if let color = self.usingColorSpaceName(NSColorSpaceName.calibratedRGB) {
+        if let color = self.usingColorSpace(.deviceRGB) {
             color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
             let nsTuple = (alpha: alpha, red: red, green: green, blue: blue)
             red = round(red * 255.0)
@@ -37,8 +37,5 @@ extension NSColor {
     }
 
 }
-
-//let c = NSColor(red: 0.2, green: 0.456231576, blue: 0.7, alpha: 1)
-//let (hexTuple, rgbTuple, nsTuple) = c.components()!
 
 

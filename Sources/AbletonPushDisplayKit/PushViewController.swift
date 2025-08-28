@@ -27,8 +27,6 @@ public class PushViewController {
     private let targetRenderFPS: Double = 30
     private let displayRefreshFPS: Double = 10
     private let maxRenderFPS: Double = 60
-    private let DISPLAY_WIDTH = 960
-    private let DISPLAY_HEIGHT = 160
     
     public init(pushView: AnyView) {
         self.pushView = pushView
@@ -206,8 +204,8 @@ public class PushViewController {
         
         // Create bitmap
         let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
-                                      pixelsWide: DISPLAY_WIDTH,
-                                      pixelsHigh: DISPLAY_HEIGHT,
+                                      pixelsWide: PixelExtractor.DISPLAY_WIDTH,
+                                      pixelsHigh: PixelExtractor.DISPLAY_HEIGHT,
                                       bitsPerSample: 8,
                                       samplesPerPixel: 4,
                                       hasAlpha: true,
