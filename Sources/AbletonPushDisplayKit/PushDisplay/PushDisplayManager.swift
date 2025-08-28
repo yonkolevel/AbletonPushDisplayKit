@@ -1,6 +1,4 @@
 import Foundation
-import AppKit
-import SwiftUI
 
 // MARK: - Device Configuration
 
@@ -40,11 +38,10 @@ var frameHeader: [UInt8] = [
 ]
 
 // MARK: - Display Manager
-
+// Manages the USB communication with Ableton Push devices
 public class PushDisplayManager: Push2DisplayManagerProtocol {
     private var deviceInterface: USBInterfaceInterface!
     @Published var isConnected = false
-    private var timer = Timer()
     private var targetDevice: PushDevice = .push3SA
     
     init() {
@@ -96,20 +93,6 @@ public class PushDisplayManager: Push2DisplayManagerProtocol {
         }
     }
     
-    func updateDisplay(image: NSBitmapImageRep) {
-        self.timer.invalidate()
-        
-        let data = PixelExtractor.getPixelsForPush(bitmap: image)
-        DispatchQueue.main.async {
-            self.timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { timer in
-                DispatchQueue.global(qos: .userInteractive).async {
-                    self.sendPixels(pixels: data)
-                }
-            }
-            
-            RunLoop.current.add(self.timer, forMode: .common)
-        }
-    }
     
     // MARK: - Device Detection
     
@@ -133,7 +116,6 @@ public class PushDisplayManager: Push2DisplayManagerProtocol {
     }
     
     func disconnect() {
-        timer.invalidate()
         do {
             try deviceInterface?.close()
             deviceInterface.release()
