@@ -5,221 +5,140 @@ import Combine
 
 public class PushViewController {
     private var displayManager: PushDisplayManager
-    private var subscriptions: Set<AnyCancellable>
-    private var isDisplayConnected: Bool
+    private var subscriptions = Set<AnyCancellable>()
     private var pushView: AnyView
-    
-    // Threading and caching
+
     private let renderQueue = DispatchQueue(label: "push.render", qos: .userInteractive)
     private let displayQueue = DispatchQueue(label: "push.display", qos: .userInteractive)
-    
-    // Frame management
+
     private var currentFrameData: [UInt8]?
     private var needsRerender = true
     private var lastRenderTime: TimeInterval = 0
-    private var lastDisplayTime: TimeInterval = 0
-    
-    // Timers
+
     private var renderTimer: Timer?
     private var displayTimer: Timer?
-    
-    // Configuration
-    private let targetRenderFPS: Double = 30
-    private let displayRefreshFPS: Double = 10
-    private let maxRenderFPS: Double = 60
-    
+
+    private let renderFPS: Double = 30
+    private let displayFPS: Double = 30
+
     public init(pushView: AnyView) {
         self.pushView = pushView
-        self.isDisplayConnected = false
-        if let connectedPush = PushDisplayManager.detectConnectedPushDevices().first {
-            self.displayManager = PushDisplayManager(device: connectedPush)
-        } else {
-            self.displayManager = PushDisplayManager()
-        }
-        
-        self.subscriptions = Set<AnyCancellable>()
-        
-        self.displayManager.connect { result in
-            switch result {
-            case .success(let isConnected):
-                self.isDisplayConnected = isConnected
-                if isConnected {
-                    self.startDisplayLoop()
+        self.displayManager = PushDisplayManager()
+
+        displayManager.$isConnected
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] connected in
+                if connected {
+                    NSLog("PushViewController: Connected, starting loops")
+                    self?.startLoops()
+                } else {
+                    NSLog("PushViewController: Disconnected, stopping loops")
+                    self?.stopLoops()
                 }
-            case .failure(let error):
-                self.isDisplayConnected = false
-                print("Push connection failed: \(error)")
             }
-        }
-        
+            .store(in: &subscriptions)
+
         NotificationCenter.default
             .publisher(for: .pushViewShouldUpdate)
             .sink { [weak self] _ in
-                self?.markNeedsRerender()
+                self?.needsRerender = true
             }
             .store(in: &subscriptions)
     }
-    
+
     public func start() {
-        guard isDisplayConnected else {
-            print("Push not connected")
-            return
+        if displayManager.isConnected {
+            startLoops()
         }
-        
-        startRenderLoop()
     }
-    
+
     public func stop() {
-        stopAllTimers()
+        stopLoops()
         displayManager.disconnect()
     }
-    
-    // MARK: - Threading Architecture
-    
-    private func startRenderLoop() {
-        renderTimer = Timer.scheduledTimer(withTimeInterval: 1.0/targetRenderFPS, repeats: true) { [weak self] _ in
+
+    private func startLoops() {
+        stopLoops()
+
+        renderTimer = Timer.scheduledTimer(withTimeInterval: 1.0/renderFPS, repeats: true) { [weak self] _ in
             self?.renderIfNeeded()
         }
-    }
-    
-    private func startDisplayLoop() {
-        displayTimer = Timer.scheduledTimer(withTimeInterval: 1.0/displayRefreshFPS, repeats: true) { [weak self] _ in
-            self?.sendCurrentFrame()
+        displayTimer = Timer.scheduledTimer(withTimeInterval: 1.0/displayFPS, repeats: true) { [weak self] _ in
+            self?.sendFrame()
         }
     }
-    
-    private func stopAllTimers() {
+
+    private func stopLoops() {
         renderTimer?.invalidate()
         renderTimer = nil
         displayTimer?.invalidate()
         displayTimer = nil
     }
-    
-    // MARK: - Smart Rendering
-    
-    private func markNeedsRerender() {
-        needsRerender = true
-    }
-    
+
     private func renderIfNeeded() {
         guard needsRerender else { return }
-        
+
         let now = CFAbsoluteTimeGetCurrent()
-        let minRenderInterval = 1.0 / maxRenderFPS
-        guard now - lastRenderTime >= minRenderInterval else { return }
-        
+        guard now - lastRenderTime >= 1.0/60.0 else { return }
+
         needsRerender = false
         lastRenderTime = now
-        
+
         renderQueue.async { [weak self] in
-            self?.performRender()
+            guard let self = self else { return }
+            let bitmap = DispatchQueue.main.sync { self.createBitmap() }
+            let frameData = PixelExtractor.getPixelsForPush(bitmap: bitmap)
+            DispatchQueue.main.async {
+                self.currentFrameData = frameData
+            }
         }
     }
-    
-    private func performRender() {
-        let bitmap = renderSwiftUIViewToBitmap()
-        let frameData = PixelExtractor.getPixelsForPush(bitmap: bitmap)
-        
-        DispatchQueue.main.async { [weak self] in
-            self?.currentFrameData = frameData
-        }
-    }
-    
-    private func sendCurrentFrame() {
-        guard let frameData = currentFrameData else {
-            sendKeepAliveFrame()
-            return
-        }
-        
+
+    private func sendFrame() {
+        guard displayManager.isConnected, let frameData = currentFrameData else { return }
         displayQueue.async { [weak self] in
             self?.displayManager.sendPixels(pixels: frameData)
         }
-        
-        lastDisplayTime = CFAbsoluteTimeGetCurrent()
     }
-    
-    private func sendKeepAliveFrame() {
-        let blackFrame = PixelExtractor.createBlackFrame()
-        displayQueue.async { [weak self] in
-            self?.displayManager.sendPixels(pixels: blackFrame)
+
+    @MainActor private func createBitmap() -> NSBitmapImageRep {
+        let renderer = ImageRenderer(content: pushView.frame(width: 960, height: 160))
+        renderer.proposedSize = ProposedViewSize(width: 960, height: 160)
+        renderer.scale = 1.0
+
+        if let nsImage = renderer.nsImage {
+            let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                          pixelsWide: 960, pixelsHigh: 160,
+                                          bitsPerSample: 8, samplesPerPixel: 4,
+                                          hasAlpha: true, isPlanar: false,
+                                          colorSpaceName: .deviceRGB,
+                                          bytesPerRow: 0, bitsPerPixel: 0)!
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+            nsImage.draw(in: NSRect(origin: .zero, size: NSSize(width: 960, height: 160)))
+            NSGraphicsContext.restoreGraphicsState()
+            return bitmap
         }
-    }
-    
-    // MARK: - Optimized Rendering
-    
-    private func renderSwiftUIViewToBitmap() -> NSBitmapImageRep {
-        return DispatchQueue.main.sync {
-            return self.createBitmapFromView()
-        }
-    }
-    
-    @MainActor private func createBitmapFromView() -> NSBitmapImageRep {
-        if #available(macOS 13.0, *) {
-            let renderer = ImageRenderer(content: pushView.frame(width: 960, height: 160))
-            renderer.proposedSize = ProposedViewSize(width: 960, height: 160)
-            renderer.scale = 1.0
-            
-            if let nsImage = renderer.nsImage {
-                return createBitmapFromNSImage(nsImage)
-            }
-        }
-        
-        return renderWithHostingView()
-    }
-    
-    @available(macOS 13.0, *)
-    private func createBitmapFromNSImage(_ image: NSImage) -> NSBitmapImageRep {
-        let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
-                                      pixelsWide: 960,
-                                      pixelsHigh: 160,
-                                      bitsPerSample: 8,
-                                      samplesPerPixel: 4,
-                                      hasAlpha: true,
-                                      isPlanar: false,
-                                      colorSpaceName: .deviceRGB,
-                                      bytesPerRow: 0,
-                                      bitsPerPixel: 0)!
-        
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-        
-        image.draw(in: NSRect(origin: .zero, size: NSSize(width: 960, height: 160)))
-        
-        NSGraphicsContext.restoreGraphicsState()
-        
-        return bitmap
-    }
-    
-    private func renderWithHostingView() -> NSBitmapImageRep {
+
         let hostingView = NSHostingView(rootView: pushView.frame(width: 960, height: 160))
         hostingView.frame = NSRect(x: 0, y: 0, width: 960, height: 160)
-        
         hostingView.needsLayout = true
         hostingView.layoutSubtreeIfNeeded()
 
         let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
-                                      pixelsWide: PixelExtractor.DISPLAY_WIDTH,
-                                      pixelsHigh: PixelExtractor.DISPLAY_HEIGHT,
-                                      bitsPerSample: 8,
-                                      samplesPerPixel: 4,
-                                      hasAlpha: true,
-                                      isPlanar: false,
+                                      pixelsWide: 960, pixelsHigh: 160,
+                                      bitsPerSample: 8, samplesPerPixel: 4,
+                                      hasAlpha: true, isPlanar: false,
                                       colorSpaceName: .deviceRGB,
-                                      bytesPerRow: 0,
-                                      bitsPerPixel: 0)!
-
+                                      bytesPerRow: 0, bitsPerPixel: 0)!
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-        
         hostingView.draw(NSRect(x: 0, y: 0, width: 960, height: 160))
-        
         NSGraphicsContext.restoreGraphicsState()
-        
         return bitmap
     }
-    
-    // MARK: - Public Controls
-    
+
     public func setAnimating(_ isAnimating: Bool) {
         renderTimer?.invalidate()
         let interval = isAnimating ? 1.0/60.0 : 1.0/10.0
@@ -228,8 +147,6 @@ public class PushViewController {
         }
     }
 }
-
-// MARK: - PixelExtractor Extension
 
 extension PixelExtractor {
     static func createBlackFrame() -> [UInt8] {

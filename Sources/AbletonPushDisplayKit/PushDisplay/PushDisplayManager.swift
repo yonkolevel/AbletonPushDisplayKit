@@ -1,21 +1,20 @@
 import Foundation
-
-// MARK: - Device Configuration
+import Combine
 
 public enum PushDevice {
     case push2
     case push3
     case push3SA
-    
+
     var productID: Int {
         switch self {
-        case .push2: return 6503 // 0x1967
-        case .push3: return 6504 // 0x1968
-        case .push3SA: return 6505 // 0x1969
+        case .push2: return 6503
+        case .push3: return 6504
+        case .push3SA: return 6505
         }
     }
-    
-    var description: String {
+
+    public var description: String {
         switch self {
         case .push2: return "Push 2"
         case .push3: return "Push 3"
@@ -24,9 +23,7 @@ public enum PushDevice {
     }
 }
 
-// MARK: - Constants
-
-let ABLETON_VENDOR_ID: Int = 10626  // 0x2982
+let ABLETON_VENDOR_ID: Int = 10626
 let PUSH_BULK_EP_OUT: UInt8 = 0x01
 let TRANSFER_TIMEOUT: UInt32 = 1000
 
@@ -37,49 +34,135 @@ var frameHeader: [UInt8] = [
     0x00, 0x00, 0x00, 0x00
 ]
 
-// MARK: - Display Manager
-// Manages the USB communication with Ableton Push devices
 public class PushDisplayManager: PushDisplayManagerProtocol {
-    private var deviceInterface: USBInterfaceInterface!
-    @Published var isConnected = false
-    private var targetDevice: PushDevice = .push3SA
-    
-    init() {
-        
+    private var deviceInterface: USBInterfaceInterface?
+    @Published public var isConnected = false
+    @Published public var connectedDevice: PushDevice?
+    private var deviceObserver: Any?
+    private var reconnectTimer: Timer?
+    private var isConnecting = false
+    private var lastDisconnectTime: Date?
+
+    public init() {
+        startObservingDevices()
+        tryConnect()
+        startReconnectPolling()
     }
-    
-    init(device: PushDevice) {
-        self.targetDevice = device
+
+    private func startReconnectPolling() {
+        DispatchQueue.main.async { [weak self] in
+            self?.reconnectTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                guard let self = self, !self.isConnected else { return }
+                self.tryConnect()
+            }
+            RunLoop.main.add(self!.reconnectTimer!, forMode: .common)
+        }
     }
-    
-    func connect(completion: @escaping (Result<Bool, Error>) -> Void) {
-        connect(to: targetDevice, completion: completion)
-    }
-    
-    func connect(to device: PushDevice, completion: @escaping (Result<Bool, Error>) -> Void) {
+
+    private func startObservingDevices() {
         do {
-            let deviceInterface = try USBDeviceInterface.create(
+            let matchingDict = USBDeviceInterface.matchingDictionary(
+                vendorIdentifier: ABLETON_VENDOR_ID,
+                productIdentifier: nil
+            )
+            deviceObserver = try USBDeviceInterface.observeDeviceList(
+                matchingDictionary: matchingDict,
+                notificationNames: [kIOFirstMatchNotification, kIOTerminatedNotification],
+                queue: .main
+            ) { [weak self] notificationName, _ in
+                self?.handleDeviceNotification(name: notificationName)
+            }
+        } catch {
+            NSLog("PushDisplayManager: Failed to start device observation: \(error)")
+        }
+    }
+
+    private func handleDeviceNotification(name: String) {
+        NSLog("PushDisplayManager: Notification received: \(name), isConnected=\(isConnected)")
+
+        if name == kIOTerminatedNotification {
+            if isConnected {
+                handleDisconnection()
+            }
+        }
+
+        // Always try to connect after any device change
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            NSLog("PushDisplayManager: Checking for devices after notification...")
+            self.tryConnect()
+        }
+    }
+
+    private func handleDisconnection() {
+        NSLog("PushDisplayManager: Disconnected")
+        deviceInterface = nil
+        isConnected = false
+        connectedDevice = nil
+        lastDisconnectTime = Date()
+    }
+
+    private func tryConnect() {
+        guard !isConnected && !isConnecting else { return }
+
+        if let lastDisconnect = lastDisconnectTime,
+           Date().timeIntervalSince(lastDisconnect) < 1.0 {
+            return
+        }
+
+        let devices = PushDisplayManager.detectConnectedPushDevices()
+        guard let device = devices.first else {
+            NSLog("PushDisplayManager: No Push devices found")
+            return
+        }
+
+        isConnecting = true
+        NSLog("PushDisplayManager: Connecting to \(device.description)...")
+
+        do {
+            let devInterface = try USBDeviceInterface.create(
                 vendorIdentifier: ABLETON_VENDOR_ID,
                 productIdentifier: device.productID
             )
-            let interfaceInterface = try deviceInterface.createInterfaceInterface()
+            let interfaceInterface = try devInterface.createInterfaceInterface()
+            try interfaceInterface.open(seize: true)
+
+            self.deviceInterface = interfaceInterface
+            self.connectedDevice = device
+            self.isConnected = true
+            NSLog("PushDisplayManager: Connected to \(device.description)")
+        } catch {
+            NSLog("PushDisplayManager: Failed to connect: \(error)")
+        }
+
+        isConnecting = false
+    }
+
+    func connect(completion: @escaping (Result<Bool, Error>) -> Void) {
+        tryConnect()
+        completion(.success(isConnected))
+    }
+
+    func connect(to device: PushDevice, completion: @escaping (Result<Bool, Error>) -> Void) {
+        do {
+            let devInterface = try USBDeviceInterface.create(
+                vendorIdentifier: ABLETON_VENDOR_ID,
+                productIdentifier: device.productID
+            )
+            let interfaceInterface = try devInterface.createInterfaceInterface()
             try interfaceInterface.open(seize: true)
             self.deviceInterface = interfaceInterface
-            self.targetDevice = device
+            self.connectedDevice = device
             self.isConnected = true
-            print("Connected to \(device.description)")
             completion(.success(true))
-        } catch let error {
-            print("Failed to connect to \(device.description): \(error)")
+        } catch {
             completion(.failure(error))
         }
     }
-    
+
     @objc public func sendPixels(pixels: [UInt8]) {
-        guard isConnected, let interface = self.deviceInterface else {
-            return
-        }
-        
+        guard isConnected, let interface = deviceInterface else { return }
+
         do {
             try interface.openAndPerform {
                 try interface.write(frameHeader, pipe: Int(PUSH_BULK_EP_OUT))
@@ -87,45 +170,36 @@ public class PushDisplayManager: PushDisplayManagerProtocol {
                                   noDataTimeout: TimeInterval(TRANSFER_TIMEOUT),
                                   completionTimeout: TimeInterval(TRANSFER_TIMEOUT))
             }
-        } catch let error {
-            print("Failed to send pixels to device: \(error)")
+        } catch {
+            NSLog("PushDisplayManager: Send failed, disconnecting")
+            handleDisconnection()
         }
     }
-    
-    
-    // MARK: - Device Detection
-    
+
     static public func detectConnectedPushDevices() -> [PushDevice] {
         var connectedDevices: [PushDevice] = []
-        let allDevices: [PushDevice] = [.push2, .push3, .push3SA]
-        
-        for device in allDevices {
+        for device in [PushDevice.push2, .push3, .push3SA] {
             do {
                 let _ = try USBDeviceInterface.create(
                     vendorIdentifier: ABLETON_VENDOR_ID,
                     productIdentifier: device.productID
                 )
                 connectedDevices.append(device)
-            } catch {
-                // Device not connected, continue checking other devices
-            }
+            } catch {}
         }
-        
         return connectedDevices
     }
-    
+
     func disconnect() {
-        do {
-            try deviceInterface?.close()
-            deviceInterface.release()
-        } catch {
-            print("Error disconnecting from device: \(error)")
-        }
+        try? deviceInterface?.close()
+        deviceInterface?.release()
         deviceInterface = nil
         isConnected = false
+        connectedDevice = nil
     }
-    
+
     deinit {
+        deviceObserver = nil
         disconnect()
     }
 }
