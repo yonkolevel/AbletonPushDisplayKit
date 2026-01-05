@@ -52,7 +52,6 @@ public class PushViewController {
             }
         }
         
-        // Listen for view updates
         NotificationCenter.default
             .publisher(for: .pushViewShouldUpdate)
             .sink { [weak self] _ in
@@ -121,7 +120,6 @@ public class PushViewController {
         let bitmap = renderSwiftUIViewToBitmap()
         let frameData = PixelExtractor.getPixelsForPush(bitmap: bitmap)
         
-        // Thread-safe frame update
         DispatchQueue.main.async { [weak self] in
             self?.currentFrameData = frameData
         }
@@ -129,7 +127,6 @@ public class PushViewController {
     
     private func sendCurrentFrame() {
         guard let frameData = currentFrameData else {
-            // No frame ready - send black to keep display alive
             sendKeepAliveFrame()
             return
         }
@@ -142,7 +139,6 @@ public class PushViewController {
     }
     
     private func sendKeepAliveFrame() {
-        // Send black frame to prevent display timeout
         let blackFrame = PixelExtractor.createBlackFrame()
         displayQueue.async { [weak self] in
             self?.displayManager.sendPixels(pixels: blackFrame)
@@ -161,7 +157,7 @@ public class PushViewController {
         if #available(macOS 13.0, *) {
             let renderer = ImageRenderer(content: pushView.frame(width: 960, height: 160))
             renderer.proposedSize = ProposedViewSize(width: 960, height: 160)
-            renderer.scale = 1.0 // Important: No scaling
+            renderer.scale = 1.0
             
             if let nsImage = renderer.nsImage {
                 return createBitmapFromNSImage(nsImage)
@@ -198,11 +194,9 @@ public class PushViewController {
         let hostingView = NSHostingView(rootView: pushView.frame(width: 960, height: 160))
         hostingView.frame = NSRect(x: 0, y: 0, width: 960, height: 160)
         
-        // Force layout
         hostingView.needsLayout = true
         hostingView.layoutSubtreeIfNeeded()
-        
-        // Create bitmap
+
         let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
                                       pixelsWide: PixelExtractor.DISPLAY_WIDTH,
                                       pixelsHigh: PixelExtractor.DISPLAY_HEIGHT,
@@ -213,8 +207,7 @@ public class PushViewController {
                                       colorSpaceName: .deviceRGB,
                                       bytesPerRow: 0,
                                       bitsPerPixel: 0)!
-        
-        // Render to bitmap
+
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
         
@@ -228,18 +221,10 @@ public class PushViewController {
     // MARK: - Public Controls
     
     public func setAnimating(_ isAnimating: Bool) {
-        if isAnimating {
-            // Higher render rate for animations
-            renderTimer?.invalidate()
-            renderTimer = Timer.scheduledTimer(withTimeInterval: 1.0/60.0, repeats: true) { [weak self] _ in
-                self?.renderIfNeeded()
-            }
-        } else {
-            // Lower render rate for static content
-            renderTimer?.invalidate()
-            renderTimer = Timer.scheduledTimer(withTimeInterval: 1.0/10.0, repeats: true) { [weak self] _ in
-                self?.renderIfNeeded()
-            }
+        renderTimer?.invalidate()
+        let interval = isAnimating ? 1.0/60.0 : 1.0/10.0
+        renderTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.renderIfNeeded()
         }
     }
 }
@@ -250,7 +235,7 @@ extension PixelExtractor {
     static func createBlackFrame() -> [UInt8] {
         return createSolidColorFrame(red: 0, green: 0, blue: 0)
     }
-    
+
     static func createSolidColorFrame(red: UInt8, green: UInt8, blue: UInt8) -> [UInt8] {
         let bitmap = createTestBitmapDirect(red: red, green: green, blue: blue)
         return getPixelsForPush(bitmap: bitmap)

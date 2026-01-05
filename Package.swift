@@ -5,12 +5,15 @@ import PackageDescription
 
 let package = Package(
     name: "AbletonPushDisplayKit",
-    platforms: [.macOS(.v10_15)],
+    platforms: [.macOS(.v13)],
     products: [
         // Products define the executables and libraries a package produces, and make them visible to other packages.
         .library(
             name: "AbletonPushDisplayKit",
             targets: ["AbletonPushDisplayKit"]),
+        .executable(
+            name: "PushDebug",
+            targets: ["PushDebug"]),
     ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
@@ -22,6 +25,9 @@ let package = Package(
         .target(
             name: "AbletonPushDisplayKit",
             dependencies: []),
+        .executableTarget(
+            name: "PushDebug",
+            dependencies: ["AbletonPushDisplayKit"]),
         .testTarget(
             name: "AbletonPushDisplayKitTests",
             dependencies: ["AbletonPushDisplayKit"]),
