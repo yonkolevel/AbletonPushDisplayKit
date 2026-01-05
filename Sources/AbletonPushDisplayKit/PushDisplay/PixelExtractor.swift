@@ -7,32 +7,56 @@ class PixelExtractor {
     public static let DISPLAY_WIDTH = 960
     public static let DISPLAY_HEIGHT = 160
     
-    static func getPixelsForPush(bitmap: NSBitmapImageRep)->[UInt8]{
-        let xOrMasks:[UInt8] = [0xe7, 0xf3, 0xe7, 0xff];
-        let displayPitch = 1920 + 128;
-        var xorOffset = 0;
-        var processedImage: [UInt8] = [UInt8].init(repeating: 0, count: displayPitch * DISPLAY_HEIGHT);
+    static func getPixelsForPush(bitmap: NSBitmapImageRep) -> [UInt8] {
+        let displayPitch = 1920 + 128
+        var processedImage = [UInt8](repeating: 0, count: displayPitch * DISPLAY_HEIGHT)
 
-        for y in 0..<DISPLAY_HEIGHT {
-            for x  in 0..<DISPLAY_WIDTH {
-                guard let color = bitmap.colorAt(x: x, y: y),
-                      let colorComponents = color.components() else {
-                    continue
+        guard let bitmapData = bitmap.bitmapData else {
+            return processedImage
+        }
+
+        let bytesPerRow = bitmap.bytesPerRow
+        let samplesPerPixel = bitmap.samplesPerPixel
+
+        // XOR mask pattern: 0xE7, 0xF3, 0xE7, 0xFF (repeating)
+        let xorMask: UInt32 = 0xFFE7F3E7
+
+        processedImage.withUnsafeMutableBytes { destBuffer in
+            let dest = destBuffer.baseAddress!.assumingMemoryBound(to: UInt8.self)
+
+            for y in 0..<DISPLAY_HEIGHT {
+                let srcRowStart = y * bytesPerRow
+                let destRowStart = y * displayPitch
+                var xorOffset = 0
+
+                for x in 0..<DISPLAY_WIDTH {
+                    let srcPixel = srcRowStart + x * samplesPerPixel
+                    let red = bitmapData[srcPixel]
+                    let green = bitmapData[srcPixel + 1]
+                    let blue = bitmapData[srcPixel + 2]
+
+                    // Convert RGB888 to BGR565 (Push display format) with XOR encoding
+                    // BGR565: bits 15-11 = Blue, bits 10-5 = Green (6 bits), bits 4-0 = Red
+                    // Little-endian bytes:
+                    //   Byte 0: GGGRRRRR (low 3 bits of green + 5 bits of red)
+                    //   Byte 1: BBBBBGGG (5 bits of blue + high 3 bits of green)
+                    let destOffset = destRowStart + x * 2
+                    let xorByte0 = UInt8((xorMask >> (xorOffset * 8)) & 0xFF)
+                    xorOffset = (xorOffset + 1) & 3
+                    let xorByte1 = UInt8((xorMask >> (xorOffset * 8)) & 0xFF)
+                    xorOffset = (xorOffset + 1) & 3
+
+                    let r5 = red >> 3           // 5 bits of red
+                    let g6 = green >> 2         // 6 bits of green
+                    let b5 = blue >> 3          // 5 bits of blue
+
+                    dest[destOffset] = ((g6 << 5) | r5) ^ xorByte0
+                    dest[destOffset + 1] = ((b5 << 3) | (g6 >> 3)) ^ xorByte1
                 }
-                let red = Pixel(colorComponents.1.red)
-                let green = Pixel(colorComponents.1.green)
-                let blue = Pixel(colorComponents.1.blue)
-                
-                let destByte = y * displayPitch + x * 2;
-                processedImage[Int(destByte)] = (red >> 3) ^ UInt8(xOrMasks[Int(xorOffset)]);
-                xorOffset = (xorOffset + 1) % 4;
-                processedImage[destByte + 1] =
-                ((blue & 0xf8) | (green >> 5)) ^ UInt8(xOrMasks[Int(xorOffset)]);
-                xorOffset = (xorOffset + 1) % 4;
             }
         }
-        
-        return processedImage;
+
+        return processedImage
     }
     
     
