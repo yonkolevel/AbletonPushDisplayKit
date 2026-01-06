@@ -51,11 +51,14 @@ public class PushDisplayManager: PushDisplayManagerProtocol {
 
     private func startReconnectPolling() {
         DispatchQueue.main.async { [weak self] in
-            self?.reconnectTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.reconnectTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
                 guard let self = self, !self.isConnected else { return }
                 self.tryConnect()
             }
-            RunLoop.main.add(self!.reconnectTimer!, forMode: .common)
+            if let timer = self.reconnectTimer {
+                RunLoop.main.add(timer, forMode: .common)
+            }
         }
     }
 
