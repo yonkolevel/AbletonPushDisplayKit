@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pkill:*)",
+      "Bash(swift build:*)",
+      "WebSearch"
+    ]
+  }
+}
