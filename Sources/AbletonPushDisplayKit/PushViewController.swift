@@ -62,6 +62,14 @@ public class PushViewController {
         displayManager.disconnect()
     }
 
+    /// Hint that the underlying SwiftUI view's observable state has changed.
+    /// Rendering happens every CVDisplayLink tick regardless; this is a no-op
+    /// semantically but kept as a typed replacement for posting
+    /// `.pushViewShouldUpdate` from outside the module.
+    public func setNeedsUpdate() {
+        NotificationCenter.default.post(name: .pushViewShouldUpdate, object: self)
+    }
+
     private func startDisplayLink() {
         guard !isRunning else { return }
         isRunning = true
