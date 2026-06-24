@@ -3,11 +3,11 @@ import SwiftUI
 
 typealias Pixel = UInt8
 
-class PixelExtractor {
+public enum PixelExtractor {
     public static let DISPLAY_WIDTH = 960
     public static let DISPLAY_HEIGHT = 160
     
-    static func getPixelsForPush(bitmap: NSBitmapImageRep) -> [UInt8] {
+    public static func getPixelsForPush(bitmap: NSBitmapImageRep) -> [UInt8] {
         let displayPitch = 1920 + 128
         var processedImage = [UInt8](repeating: 0, count: displayPitch * DISPLAY_HEIGHT)
 

@@ -13,6 +13,9 @@ protocol PushDisplayManagerProtocol {
     var isConnected: Bool { get }
     func connect(completion: @escaping (Result<Bool, Error>) -> Void)
     func connect(to device: PushDevice, completion: @escaping (Result<Bool, Error>) -> Void)
+    func addFrameSink(_ sink: PushDisplayFrameSink)
+    func removeFrameSink(_ sink: PushDisplayFrameSink)
+    func removeAllFrameSinks()
     func sendPixels(pixels: [UInt8])
     func disconnect()
 }

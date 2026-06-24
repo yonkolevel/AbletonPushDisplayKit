@@ -254,3 +254,60 @@ final class ConstantsTests: XCTestCase {
         XCTAssertEqual(TRANSFER_TIMEOUT, 1000)
     }
 }
+
+// MARK: - PushDisplayFrame Tests
+
+final class PushDisplayFrameTests: XCTestCase {
+
+    func testFrameMetadataMatchesPushPayload() {
+        XCTAssertEqual(PushDisplayFrame.width, 960)
+        XCTAssertEqual(PushDisplayFrame.height, 160)
+        XCTAssertEqual(PushDisplayFrame.rowPixelBytes, 1920)
+        XCTAssertEqual(PushDisplayFrame.rowPaddingBytes, 128)
+        XCTAssertEqual(PushDisplayFrame.rowStride, 2048)
+        XCTAssertEqual(PushDisplayFrame.encodedByteCount, 327_680)
+    }
+
+    func testFrameValidityChecksPayloadSize() {
+        let validFrame = PushDisplayFrame(encodedPixels: [UInt8](repeating: 0, count: PushDisplayFrame.encodedByteCount))
+        XCTAssertTrue(validFrame.isValidForPushDisplay)
+
+        let invalidFrame = PushDisplayFrame(encodedPixels: [UInt8](repeating: 0, count: PushDisplayFrame.encodedByteCount - 1))
+        XCTAssertFalse(invalidFrame.isValidForPushDisplay)
+    }
+
+    func testDecodesBlackFrameToRGBA() {
+        let bitmap = PixelExtractor.createTestBitmapDirect(red: 0, green: 0, blue: 0)
+        let frame = PushDisplayFrame(encodedPixels: PixelExtractor.getPixelsForPush(bitmap: bitmap))
+
+        let rgba = frame.decodedRGBA8888Bytes()
+
+        XCTAssertEqual(rgba.count, PushDisplayFrame.width * PushDisplayFrame.height * 4)
+        XCTAssertEqual(Array(rgba.prefix(4)), [0, 0, 0, 255])
+    }
+
+    func testDecodesWhiteFrameToRGBA() {
+        let bitmap = PixelExtractor.createTestBitmapDirect(red: 255, green: 255, blue: 255)
+        let frame = PushDisplayFrame(encodedPixels: PixelExtractor.getPixelsForPush(bitmap: bitmap))
+
+        let rgba = frame.decodedRGBA8888Bytes()
+
+        XCTAssertEqual(Array(rgba.prefix(4)), [255, 255, 255, 255])
+    }
+
+    func testManagerPublishesFramesToMirrorSinksWhenDisconnected() {
+        let manager = PushDisplayManager()
+        manager.disconnect()
+
+        let expectation = XCTestExpectation(description: "mirror sink receives frame")
+        let sink = ClosurePushDisplayFrameSink { frame in
+            XCTAssertEqual(frame.encodedPixels.count, PushDisplayFrame.encodedByteCount)
+            expectation.fulfill()
+        }
+        manager.addFrameSink(sink)
+
+        manager.sendPixels(pixels: [UInt8](repeating: 0, count: PushDisplayFrame.encodedByteCount))
+
+        wait(for: [expectation], timeout: 1.0)
+    }
+}
