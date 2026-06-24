@@ -42,6 +42,9 @@ public class PushDisplayManager: PushDisplayManagerProtocol {
     private var reconnectTimer: Timer?
     private var isConnecting = false
     private var lastDisconnectTime: Date?
+    private var frameSinks: [PushDisplayFrameSink] = []
+    private let frameSinksLock = NSLock()
+    private let frameSinksQueue = DispatchQueue(label: "PushDisplayManager.frameSinks", qos: .userInitiated)
 
     public init() {
         startObservingDevices()
@@ -163,7 +166,31 @@ public class PushDisplayManager: PushDisplayManagerProtocol {
         }
     }
 
+    public func addFrameSink(_ sink: PushDisplayFrameSink) {
+        frameSinksLock.lock()
+        defer { frameSinksLock.unlock() }
+
+        guard !frameSinks.contains(where: { $0 === sink }) else { return }
+        frameSinks.append(sink)
+    }
+
+    public func removeFrameSink(_ sink: PushDisplayFrameSink) {
+        frameSinksLock.lock()
+        defer { frameSinksLock.unlock() }
+
+        frameSinks.removeAll { $0 === sink }
+    }
+
+    public func removeAllFrameSinks() {
+        frameSinksLock.lock()
+        defer { frameSinksLock.unlock() }
+
+        frameSinks.removeAll()
+    }
+
     @objc public func sendPixels(pixels: [UInt8]) {
+        publishFrameToSinks(PushDisplayFrame(encodedPixels: pixels))
+
         guard isConnected, let interface = deviceInterface else { return }
 
         do {
@@ -176,6 +203,20 @@ public class PushDisplayManager: PushDisplayManagerProtocol {
         } catch {
             NSLog("PushDisplayManager: Send failed, disconnecting")
             handleDisconnection()
+        }
+    }
+
+    private func publishFrameToSinks(_ frame: PushDisplayFrame) {
+        frameSinksLock.lock()
+        let sinks = frameSinks
+        frameSinksLock.unlock()
+
+        guard !sinks.isEmpty else { return }
+
+        frameSinksQueue.async {
+            for sink in sinks {
+                sink.receive(pushDisplayFrame: frame)
+            }
         }
     }
 
@@ -193,7 +234,7 @@ public class PushDisplayManager: PushDisplayManagerProtocol {
         return connectedDevices
     }
 
-    func disconnect() {
+    public func disconnect() {
         try? deviceInterface?.close()
         deviceInterface?.release()
         deviceInterface = nil
