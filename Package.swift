@@ -14,6 +14,9 @@ let package = Package(
         .executable(
             name: "PushDebug",
             targets: ["PushDebug"]),
+        .executable(
+            name: "PushDisplayMirrorApp",
+            targets: ["PushDisplayMirrorApp"]),
     ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
@@ -27,6 +30,9 @@ let package = Package(
             dependencies: []),
         .executableTarget(
             name: "PushDebug",
+            dependencies: ["AbletonPushDisplayKit"]),
+        .executableTarget(
+            name: "PushDisplayMirrorApp",
             dependencies: ["AbletonPushDisplayKit"]),
         .testTarget(
             name: "AbletonPushDisplayKitTests",
