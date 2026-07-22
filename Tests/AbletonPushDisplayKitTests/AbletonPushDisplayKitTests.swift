@@ -157,6 +157,47 @@ final class PixelExtractorTests: XCTestCase {
     }
 }
 
+// MARK: - Frame Rate Limiter Tests
+
+final class FrameRateLimiterTests: XCTestCase {
+    func testAcceptsOnlyFramesAtTheConfiguredCadence() {
+        var limiter = FrameRateLimiter(maximumFramesPerSecond: 20)
+
+        XCTAssertTrue(limiter.shouldRender(at: 0))
+        XCTAssertFalse(limiter.shouldRender(at: 0.049))
+        XCTAssertTrue(limiter.shouldRender(at: 0.050))
+        XCTAssertFalse(limiter.shouldRender(at: 0.099))
+        XCTAssertTrue(limiter.shouldRender(at: 0.100))
+    }
+}
+
+// MARK: - Frame Work Gate Tests
+
+final class FrameWorkGateTests: XCTestCase {
+    func testDropsWorkWhileAFrameIsInFlight() {
+        let gate = FrameWorkGate()
+        let queue = DispatchQueue(label: "FrameWorkGateTests")
+        let releaseFirstFrame = DispatchSemaphore(value: 0)
+        let firstFrameStarted = expectation(description: "first frame started")
+        var executionCount = 0
+
+        XCTAssertTrue(gate.enqueue(on: queue) {
+            executionCount += 1
+            firstFrameStarted.fulfill()
+            releaseFirstFrame.wait()
+        })
+        wait(for: [firstFrameStarted], timeout: 1)
+
+        XCTAssertFalse(gate.enqueue(on: queue) { executionCount += 1 })
+        releaseFirstFrame.signal()
+        queue.sync {}
+
+        XCTAssertTrue(gate.enqueue(on: queue) { executionCount += 1 })
+        queue.sync {}
+        XCTAssertEqual(executionCount, 2)
+    }
+}
+
 // MARK: - PushDisplayManager Tests
 
 final class PushDisplayManagerTests: XCTestCase {

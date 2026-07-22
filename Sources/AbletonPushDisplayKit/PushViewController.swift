@@ -5,6 +5,40 @@ import Combine
 import CoreVideo
 import QuartzCore
 
+struct FrameRateLimiter {
+    private let minimumFrameInterval: TimeInterval
+    private var lastFrameTime: TimeInterval?
+
+    init(maximumFramesPerSecond: Double) {
+        minimumFrameInterval = 1 / max(1, maximumFramesPerSecond)
+    }
+
+    mutating func shouldRender(at time: TimeInterval) -> Bool {
+        guard let lastFrameTime else {
+            self.lastFrameTime = time
+            return true
+        }
+        guard time - lastFrameTime >= minimumFrameInterval else { return false }
+        self.lastFrameTime = time
+        return true
+    }
+}
+
+final class FrameWorkGate {
+    private let permit = DispatchSemaphore(value: 1)
+
+    @discardableResult
+    func enqueue(on queue: DispatchQueue, work: @escaping () -> Void) -> Bool {
+        guard permit.wait(timeout: .now()) == .success else { return false }
+
+        queue.async { [permit] in
+            defer { permit.signal() }
+            work()
+        }
+        return true
+    }
+}
+
 public class PushViewController {
     private var displayManager: PushDisplayManager
     private var subscriptions = Set<AnyCancellable>()
@@ -13,6 +47,8 @@ public class PushViewController {
     // Drain AppKit/CG autoreleases after each frame instead of retaining one image per display tick.
     private let renderQueue = DispatchQueue(label: "push.render", qos: .userInteractive, autoreleaseFrequency: .workItem)
     private let displayQueue = DispatchQueue(label: "push.display", qos: .userInteractive)
+    private let renderGate = FrameWorkGate()
+    private let displayGate = FrameWorkGate()
 
     // Double-buffered frame data
     private var frameBuffer0: [UInt8]?
@@ -21,14 +57,19 @@ public class PushViewController {
     private let bufferLock = NSLock()
 
     private var displayLink: CVDisplayLink?
+    private var frameRateLimiter: FrameRateLimiter
     private var isRunning = false
-    private var frameCount: UInt64 = 0
     private var lastFPSLogTime: TimeInterval = 0
     private var framesThisSecond: Int = 0
 
-    public init(pushView: AnyView) {
+    public convenience init(pushView: AnyView) {
+        self.init(pushView: pushView, maximumFramesPerSecond: 60)
+    }
+
+    public init(pushView: AnyView, maximumFramesPerSecond: Double) {
         self.pushView = pushView
-        self.displayManager = PushDisplayManager()
+        frameRateLimiter = FrameRateLimiter(maximumFramesPerSecond: maximumFramesPerSecond)
+        displayManager = PushDisplayManager()
 
         displayManager.$isConnected
             .removeDuplicates()
@@ -41,13 +82,6 @@ public class PushViewController {
                     NSLog("PushViewController: Disconnected, stopping display link")
                     self?.stopDisplayLink()
                 }
-            }
-            .store(in: &subscriptions)
-
-        NotificationCenter.default
-            .publisher(for: .pushViewShouldUpdate)
-            .sink { [weak self] _ in
-                self?.frameCount = 0
             }
             .store(in: &subscriptions)
     }
@@ -64,7 +98,7 @@ public class PushViewController {
     }
 
     /// Hint that the underlying SwiftUI view's observable state has changed.
-    /// Rendering happens every CVDisplayLink tick regardless; this is a no-op
+    /// Rendering polls at the configured maximum frame rate; this is a no-op
     /// semantically but kept as a typed replacement for posting
     /// `.pushViewShouldUpdate` from outside the module.
     public func setNeedsUpdate() {
@@ -108,15 +142,14 @@ public class PushViewController {
     }
 
     private func displayLinkCallback() {
-        frameCount += 1
+        guard frameRateLimiter.shouldRender(at: CACurrentMediaTime()) else { return }
 
-        // Render new frame on render queue
-        renderQueue.async { [weak self] in
+        // Keep at most one render and one USB write in flight. The two frame
+        // buffers retain the latest completed frames, so queued stale work is useless.
+        renderGate.enqueue(on: renderQueue) { [weak self] in
             self?.renderFrame()
         }
-
-        // Send current frame on display queue
-        displayQueue.async { [weak self] in
+        displayGate.enqueue(on: displayQueue) { [weak self] in
             self?.sendFrame()
         }
     }
