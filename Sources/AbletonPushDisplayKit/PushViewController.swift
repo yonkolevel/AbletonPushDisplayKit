@@ -10,7 +10,8 @@ public class PushViewController {
     private var subscriptions = Set<AnyCancellable>()
     private var pushView: AnyView
 
-    private let renderQueue = DispatchQueue(label: "push.render", qos: .userInteractive)
+    // Drain AppKit/CG autoreleases after each frame instead of retaining one image per display tick.
+    private let renderQueue = DispatchQueue(label: "push.render", qos: .userInteractive, autoreleaseFrequency: .workItem)
     private let displayQueue = DispatchQueue(label: "push.display", qos: .userInteractive)
 
     // Double-buffered frame data
