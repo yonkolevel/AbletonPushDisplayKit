@@ -1,5 +1,5 @@
-import Foundation
 import Combine
+import Foundation
 
 public enum PushDevice {
     case push2
@@ -133,9 +133,9 @@ public class PushDisplayManager: PushDisplayManagerProtocol {
             let interfaceInterface = try devInterface.createInterfaceInterface()
             try interfaceInterface.open(seize: true)
 
-            self.deviceInterface = interfaceInterface
-            self.connectedDevice = device
-            self.isConnected = true
+            deviceInterface = interfaceInterface
+            connectedDevice = device
+            isConnected = true
             NSLog("PushDisplayManager: Connected to \(device.description)")
         } catch {
             NSLog("PushDisplayManager: Failed to connect: \(error)")
@@ -157,9 +157,9 @@ public class PushDisplayManager: PushDisplayManagerProtocol {
             )
             let interfaceInterface = try devInterface.createInterfaceInterface()
             try interfaceInterface.open(seize: true)
-            self.deviceInterface = interfaceInterface
-            self.connectedDevice = device
-            self.isConnected = true
+            deviceInterface = interfaceInterface
+            connectedDevice = device
+            isConnected = true
             completion(.success(true))
         } catch {
             completion(.failure(error))
@@ -194,12 +194,10 @@ public class PushDisplayManager: PushDisplayManagerProtocol {
         guard isConnected, let interface = deviceInterface else { return }
 
         do {
-            try interface.openAndPerform {
-                try interface.write(frameHeader, pipe: Int(PUSH_BULK_EP_OUT))
-                try interface.write(pixels, pipe: Int(PUSH_BULK_EP_OUT),
-                                  noDataTimeout: TimeInterval(TRANSFER_TIMEOUT),
-                                  completionTimeout: TimeInterval(TRANSFER_TIMEOUT))
-            }
+            try interface.write(frameHeader, pipe: Int(PUSH_BULK_EP_OUT))
+            try interface.write(pixels, pipe: Int(PUSH_BULK_EP_OUT),
+                                noDataTimeout: TimeInterval(TRANSFER_TIMEOUT),
+                                completionTimeout: TimeInterval(TRANSFER_TIMEOUT))
         } catch {
             NSLog("PushDisplayManager: Send failed, disconnecting")
             handleDisconnection()
@@ -220,11 +218,11 @@ public class PushDisplayManager: PushDisplayManagerProtocol {
         }
     }
 
-    static public func detectConnectedPushDevices() -> [PushDevice] {
+    public static func detectConnectedPushDevices() -> [PushDevice] {
         var connectedDevices: [PushDevice] = []
         for device in [PushDevice.push2, .push3, .push3SA] {
             do {
-                let _ = try USBDeviceInterface.create(
+                _ = try USBDeviceInterface.create(
                     vendorIdentifier: ABLETON_VENDOR_ID,
                     productIdentifier: device.productID
                 )
