@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import AbletonPushDisplayKit
 
 enum DemoType: String, CaseIterable {
@@ -9,23 +10,35 @@ enum DemoType: String, CaseIterable {
     case starfield = "Starfield"
 }
 
-class DebugState: ObservableObject {
-    static let shared = DebugState()
-    @Published var time = Date()
+// Controls observe selection only; animation frames must not invalidate the picker.
+final class DebugSelection: ObservableObject {
     @Published var currentDemo: DemoType = .clock
-    @Published var animationPhase: Double = 0
-    @Published var barHeights: [CGFloat] = Array(repeating: 0.5, count: 32)
+}
+
+final class DebugState: ObservableObject {
+    static let shared = DebugState()
+    let objectWillChange = ObservableObjectPublisher()
+    let selection = DebugSelection()
+    var currentDemo: DemoType {
+        get { selection.currentDemo }
+        set { selection.currentDemo = newValue }
+    }
+
+    // Frame actions publish once, not once per coordinate or array element.
+    var time = Date()
+    var animationPhase: Double = 0
+    var barHeights: [CGFloat] = Array(repeating: 0.5, count: 32)
 
     // Pong game state
-    @Published var ballX: CGFloat = 480
-    @Published var ballY: CGFloat = 80
-    @Published var ballVX: CGFloat = 6
-    @Published var ballVY: CGFloat = 4
-    @Published var paddle1Y: CGFloat = 60
-    @Published var paddle2Y: CGFloat = 60
-    @Published var score1: Int = 0
-    @Published var score2: Int = 0
-    @Published var playerInput: CGFloat = 0
+    var ballX: CGFloat = 480
+    var ballY: CGFloat = 80
+    var ballVX: CGFloat = 6
+    var ballVY: CGFloat = 4
+    var paddle1Y: CGFloat = 60
+    var paddle2Y: CGFloat = 60
+    var score1: Int = 0
+    var score2: Int = 0
+    var playerInput: CGFloat = 0
 
     // Starfield state
     struct Star {
@@ -33,13 +46,14 @@ class DebugState: ObservableObject {
         var y: CGFloat
         var z: CGFloat  // depth (affects speed and size)
     }
-    @Published var stars: [Star] = []
-    @Published var warpSpeed: CGFloat = 1.0
+    var stars: [Star] = []
+    var warpSpeed: CGFloat = 1.0
 
     private var timer: Timer?
     private var animationTimer: Timer?
 
     func initStarfield() {
+        objectWillChange.send()
         stars = (0..<150).map { _ in
             Star(
                 x: CGFloat.random(in: 0...960),
@@ -50,8 +64,10 @@ class DebugState: ObservableObject {
     }
 
     func updateStarfield() {
+        objectWillChange.send()
         let centerX: CGFloat = 480
         let centerY: CGFloat = 80
+        var stars = self.stars
 
         for i in 0..<stars.count {
             // Move stars outward from center based on depth
@@ -75,39 +91,59 @@ class DebugState: ObservableObject {
                 stars[i].z = 1.0
             }
         }
+        self.stars = stars
     }
 
     func startTimer() {
         initStarfield()
 
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            self?.time = Date()
-            NotificationCenter.default.post(name: .pushViewShouldUpdate, object: nil)
+            self?.updateTime(Date())
         }
 
         animationTimer = Timer.scheduledTimer(withTimeInterval: 1.0/60.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            self.animationPhase += 0.05
-
-            for i in 0..<self.barHeights.count {
-                let base = sin(self.animationPhase * 2 + Double(i) * 0.3) * 0.3 + 0.5
-                let noise = Double.random(in: -0.1...0.1)
-                self.barHeights[i] = CGFloat(max(0.1, min(1.0, base + noise)))
-            }
-
-            if self.currentDemo == .pong {
-                self.updatePong()
-            }
-
-            if self.currentDemo == .starfield {
-                self.updateStarfield()
-            }
-
-            NotificationCenter.default.post(name: .pushViewShouldUpdate, object: nil)
+            self?.advanceAnimationFrame()
         }
     }
 
+    func updateTime(_ date: Date) {
+        if currentDemo == .clock { objectWillChange.send() }
+        time = date
+    }
+
+    func advanceAnimationFrame() {
+        switch currentDemo {
+        case .clock:
+            return
+        case .visualizer:
+            objectWillChange.send()
+            animationPhase += 0.05
+            barHeights = barHeights.indices.map { i in
+                let base = sin(animationPhase * 2 + Double(i) * 0.3) * 0.3 + 0.5
+                let noise = Double.random(in: -0.1...0.1)
+                return CGFloat(max(0.1, min(1.0, base + noise)))
+            }
+        case .gradient:
+            objectWillChange.send()
+            animationPhase += 0.05
+        case .pong:
+            updatePong()
+        case .starfield:
+            updateStarfield()
+        }
+        NotificationCenter.default.post(name: .pushViewShouldUpdate, object: nil)
+    }
+
+    func setPaddlePosition(_ position: CGFloat) {
+        guard currentDemo == .pong else { return }
+        let clamped = max(20, min(140, position))
+        guard paddle1Y != clamped else { return }
+        objectWillChange.send()
+        paddle1Y = clamped
+    }
+
     func updatePong() {
+        objectWillChange.send()
         let paddleHeight: CGFloat = 40
         let paddleWidth: CGFloat = 8
         let ballSize: CGFloat = 10
@@ -231,13 +267,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 struct ContentView: View {
-    @ObservedObject private var state = DebugState.shared
+    private let state = DebugState.shared
+    @ObservedObject private var selection = DebugState.shared.selection
     @State private var localKeyMonitor: Any?
     @State private var globalKeyMonitor: Any?
 
     var body: some View {
         VStack(spacing: 12) {
-            Picker("Demo", selection: $state.currentDemo) {
+            Picker("Demo", selection: $selection.currentDemo) {
                 ForEach(DemoType.allCases, id: \.self) { demo in
                     Text(demo.rawValue).tag(demo)
                 }
@@ -257,7 +294,7 @@ struct ContentView: View {
                             // Map mouse Y to paddle position (0-160)
                             let normalizedY = location.y / 80.0  // 0 to 1
                             let paddleY = normalizedY * 160
-                            state.paddle1Y = max(20, min(140, paddleY))
+                            state.setPaddlePosition(paddleY)
                         case .ended:
                             break
                         }
@@ -267,7 +304,7 @@ struct ContentView: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.gray.opacity(0.3)))
 
-            if state.currentDemo == .pong {
+            if selection.currentDemo == .pong {
                 Text("Move mouse over preview to control paddle")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -333,10 +370,10 @@ struct ContentView: View {
 }
 
 struct DebugPushView: View {
-    @ObservedObject private var state = DebugState.shared
+    @ObservedObject private var selection = DebugState.shared.selection
 
     var body: some View {
-        switch state.currentDemo {
+        switch selection.currentDemo {
         case .clock:
             ClockDemoView()
         case .visualizer:
@@ -391,7 +428,8 @@ struct VisualizerDemoView: View {
     @ObservedObject private var state = DebugState.shared
 
     var body: some View {
-        ZStack {
+        let barHeights = state.barHeights
+        return ZStack {
             Color.black
 
             HStack(spacing: 4) {
@@ -399,8 +437,8 @@ struct VisualizerDemoView: View {
                     VStack {
                         Spacer()
                         RoundedRectangle(cornerRadius: 2)
-                            .fill(barGradient(for: state.barHeights[i]))
-                            .frame(width: 24, height: 140 * state.barHeights[i])
+                            .fill(barGradient(for: barHeights[i]))
+                            .frame(width: 24, height: 140 * barHeights[i])
                     }
                 }
             }
@@ -426,10 +464,11 @@ struct GradientDemoView: View {
     @ObservedObject private var state = DebugState.shared
 
     var body: some View {
-        Canvas { context, size in
+        let phase = state.animationPhase
+        return Canvas { context, size in
             for x in stride(from: 0, to: size.width, by: 4) {
-                let hue = (sin(state.animationPhase + x / 80) + 1) / 2
-                let brightness = (sin(state.animationPhase * 1.5 + x / 60) + 1) / 4 + 0.6
+                let hue = (sin(phase + x / 80) + 1) / 2
+                let brightness = (sin(phase * 1.5 + x / 60) + 1) / 4 + 0.6
 
                 context.fill(
                     Path(CGRect(x: x, y: 0, width: 4, height: size.height)),
@@ -449,7 +488,13 @@ struct PongDemoView: View {
     let ballSize: CGFloat = 10
 
     var body: some View {
-        Canvas { context, size in
+        let state = (
+            ballX: self.state.ballX, ballY: self.state.ballY,
+            ballVX: self.state.ballVX, ballVY: self.state.ballVY,
+            paddle1Y: self.state.paddle1Y, paddle2Y: self.state.paddle2Y,
+            score1: self.state.score1, score2: self.state.score2
+        )
+        return Canvas { context, size in
             // Background
             context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
 
@@ -551,7 +596,8 @@ struct StarfieldDemoView: View {
     @ObservedObject private var state = DebugState.shared
 
     var body: some View {
-        Canvas { context, size in
+        let stars = state.stars
+        return Canvas { context, size in
             // Deep space background with subtle gradient
             let bgGradient = Gradient(colors: [
                 Color(red: 0.02, green: 0.02, blue: 0.08),
@@ -563,7 +609,7 @@ struct StarfieldDemoView: View {
             )
 
             // Draw stars
-            for star in state.stars {
+            for star in stars {
                 let brightness = 1.0 - Double(star.z)
                 let starSize = (1.0 - star.z) * 4 + 1
 

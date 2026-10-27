@@ -35,6 +35,9 @@ let package = Package(
             name: "PushDisplayMirrorApp",
             dependencies: ["AbletonPushDisplayKit"]),
         .testTarget(
+            name: "PushDebugTests",
+            dependencies: ["PushDebug"]),
+        .testTarget(
             name: "AbletonPushDisplayKitTests",
             dependencies: ["AbletonPushDisplayKit"]),
     ]
